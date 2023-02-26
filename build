@@ -1,0 +1,257 @@
+#!/bin/bash
+DIR=$(dirname $(readlink -f $0))
+
+MEID=$(id -u)
+MEGID=$(id -g)
+
+RUNTIME_CLASH=false
+RUNTIME_GEOIP=false
+RUNTIME_DASHBOARD=false
+BUILD_CLASH=false
+BUILD_DASHBOARD=false
+CLASH_VERSION=""
+CONFIG_FILE=""
+CONFIG_URL=""
+BASE_IMAGE="ubuntu:18.04"
+RUN_CMD="apt update && apt install -y wget"
+IMAGE_NAME="clashd"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        --build-clash)
+            BUILD_CLASH=true
+            ;;
+        --build-dashboard)
+            BUILD_DASHBOARD=true
+            ;;
+        --runtime-clash)
+            RUNTIME_CLASH=true
+            ;;
+        --runtime-geoip)
+            RUNTIME_GEOIP=true
+            ;;
+        --runtime-dashboard)
+            RUNTIME_DASHBOARD=true
+            ;;
+        --clash-version)
+            CLASH_VERSION="$2"
+            shift
+            ;;
+        -t|--tag)
+            IMAGE_NAME="$2"
+            shift
+            ;;
+        --image)
+            BASE_IMAGE="$2"
+            shift
+            ;;
+        --run)
+            RUN_CMD="$2"
+            shift
+            ;;
+        -f|--config-file)
+            CONFIG_FILE="$2"
+            shift
+            ;;
+        -u|--config-url)
+            CONFIG_URL="$2"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [Options]"
+            echo "Options:"
+            echo "  --build-clash           Build clash from the master"
+            echo "                          branch"
+            echo
+            echo "  --build-dashboard       Build clash-dashboard from"
+            echo "                          the master branch"
+            echo
+            echo "  --runtime-clash         Download clash when the"
+            echo "                          container starts. To use"
+            echo "                          this option, the image must"
+            echo "                          have wget installed"
+            echo
+            echo "  --runtime-geoip         Download GeoIP's database"
+            echo "                          when the container starts"
+            echo "                          To use this option, the"
+            echo "                          image must have wget installed"
+            echo
+            echo "  --runtime-dashboard     Download clash-dashboard"
+            echo "                          when the container starts"
+            echo "                          To use this option, the"
+            echo "                          image must have git installed"
+            echo
+            echo "  --clash-version <ver>   Specify the version of clash"
+            echo
+            echo "  -t, --tag <tag>         Specify the tag of the image"
+            echo
+            echo "  --image <image>         Specify the base image"
+            echo
+            echo "  --run <cmd>             Specify the command to run"
+            echo "                          in the Dockerfile"
+            echo
+            echo "  -f, --config-file <file>"
+            echo "                          Specify the config file"
+            echo
+            echo "  -u, --config-url <url>  Specify the config url"
+            echo
+            echo "  -h, --help              Show this help message"
+            echo
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $key"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+CheckLastestReleaseOfGithubReprositry() {
+    local ver=$(wget --max-redirect=0 --server-response $1/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([^\/]+).*/\1/p')
+    if [ -z $ver ]; then
+        echo "Failed to check the lastest release of $1"
+        exit 1
+    fi
+    echo $ver
+}
+
+echo "Clean up old files..."
+
+cd $DIR
+ls | grep -v build | grep -v init.sh | xargs rm -rf 
+
+if [ "$RUNTIME_CLASH" = false ]; then
+
+    if [ "$BUILD_CLASH" = true ]; then
+        echo "Building clash from master..."
+
+        docker run --rm --net host \
+            -e http_proxy=$http_proxy \
+            -e https_proxy=$https_proxy \
+            -e no_proxy=$no_proxy \
+            -v $DIR:/go/bin \
+            --entrypoint /bin/sh \
+            golang -c "go install github.com/Dreamacro/clash@latest && cp chown ${MEID}:${MEGID} /go/bin/*"
+
+    else
+
+        if [ -z $CLASH_VERSION ]; then
+            echo "Check the last version of clash..."
+            CLASH_VERSION=$(CheckLastestReleaseOfGithubReprositry https://github.com/Dreamacro/clash)
+            echo "The lastest version of clash is ${CLASH_VERSION}"
+        else
+            echo "Using the specified version ${CLASH_VERSION}"
+        fi
+
+        echo "Downloading clash..."
+        wget https://github.com/Dreamacro/clash/releases/download/${CLASH_VERSION}/clash-linux-amd64-v3-${CLASH_VERSION}.gz -O clash.gz 2>>./log
+
+        if [ $? -ne 0 ]; then
+            echo "Failed to download clash, please check the log."
+            exit 1
+        fi
+        
+        echo "Uncompressing clash..."
+        gunzip clash.gz
+
+    fi
+fi
+
+if [ "$RUNTIME_GEOIP" = false ]; then
+
+    echo "Retrieving GeoIP's version ..."
+    CURRENT_RELEASE=$(wget --max-redirect=0 --server-response https://github.com/Dreamacro/maxmind-geoip/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([0-9]+).*/\1/p')
+    echo "The lastest version is ${CURRENT_RELEASE}"
+    echo "Downloading GeoIP's database ..."
+    wget https://github.com/Dreamacro/maxmind-geoip/releases/download/${CURRENT_RELEASE}/Country.mmdb 2>>./log
+    if [ $? -ne 0 ]; then
+        echo "Failed to download GeoIP's database, please check the log."
+        exit 1
+    fi
+
+fi
+
+if [ "$RUNTIME_DASHBOARD" = false ]; then
+
+    mkdir -p $DIR/clash-dashboard
+
+    if [ "$BUILD_DASHBOARD" = true ]; then
+        echo "Building clash-dashboard from master..."
+
+        git clone https://github.com/Dreamacro/clash-dashboard.git $DIR/clash-dashboard 2>>./log
+
+        NPMREPRO=$(npm config get registry)
+        SET_REPRO="echo Default"
+        if [ ! -z $NPMREPRO ]; then
+            SET_REPRO="npm config -g set registry=$NPMREPRO"
+        fi
+
+        docker run --rm --net host \
+            -e http_proxy=$http_proxy \
+            -e https_proxy=$https_proxy \
+            -e no_proxy=$no_proxy \
+            -v $DIR/clash-dashboard:/src \
+            --entrypoint /bin/sh \
+            node:lts-slim -c "cd /src && ${SET_REPRO} && npm install -g pnpm && npm install && pnpm build && chown -R ${MEID}:${MEGID} /src"
+
+        mv $DIR/clash-dashboard/dist $DIR/ui
+        rm -rf $DIR/clash-dashboard
+
+    else
+        echo "Checking out clash-dashboard..."
+        git clone -b gh-pages --depth 1 https://github.com/Dreamacro/clash-dashboard.git $DIR/clash-dashboard 2>>./log
+        mv $DIR/clash-dashboard $DIR/ui
+    fi
+
+fi
+
+if [ ! -z $CONFIG_FILE ]; then
+    echo "Copying config file..."
+    cp $CONFIG_FILE $DIR/config.yaml
+fi
+
+if [ ! -z $CONFIG_URL ]; then
+    echo "Downloading config file..."
+    wget $CONFIG_URL&flag=clash -O $DIR/config.yaml 2>>./log
+    if [ $? -ne 0 ]; then
+        echo "Failed to download config file, please check the log."
+        exit 1
+    fi
+fi
+
+echo "Generating dockerfile..."
+echo "FROM $BASE_IMAGE" > $DIR/Dockerfile
+echo "COPY init.sh /usr/bin/init.sh" >> $DIR/Dockerfile
+
+if [ "$RUNTIME_CLASH" = false ]; then
+    echo "COPY clash /usr/bin/clash" >> $DIR/Dockerfile
+fi
+
+if [ "$RUNTIME_GEOIP" = false ]; then
+    echo "COPY Country.mmdb /etc/clash/Country.mmdb" >> $DIR/Dockerfile
+fi
+
+if [ "$RUNTIME_DASHBOARD" = false ]; then
+    echo "COPY ui /usr/share/clash-dashboard" >> $DIR/Dockerfile
+fi
+
+if [ -f "$DIR/config.yaml" ]; then
+    echo "COPY config.yaml /etc/clash/config.yaml" >> $DIR/Dockerfile
+fi
+
+if [ ! -z "$RUN_CMD" ]; then
+    echo "RUN $RUN_CMD" >> $DIR/Dockerfile
+fi
+
+echo "ENTRYPOINT [\"/bin/bash\", \"/usr/bin/init.sh\"]" >> $DIR/Dockerfile
+
+echo "Building docker image..."
+
+docker rmi -f $IMAGE_NAME 2>/dev/null 1>/dev/null
+
+docker build --rm -t $IMAGE_NAME .
+
+echo "Done."
