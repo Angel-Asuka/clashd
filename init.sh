@@ -95,7 +95,7 @@ if [ ! -f "$COMPLETE_MARK" ]; then
         # Download config file if CONFIG_URL is set
         if [ ! -z "$CONFIG_URL" ]; then
             echo "Downloading config file from $CONFIG_URL"
-            curl -sSL "$CONFIG_URL" -o "$CONFIG_FILE"
+            wget "$CONFIG_URL\&flag=clash" -O "$CONFIG_FILE"
             if [ $? -ne 0 ]; then
                 echo "Failed to download config file"
                 exit 1
@@ -118,6 +118,8 @@ if [ ! -f "$COMPLETE_MARK" ]; then
     sed -i '/^port:/d' "$CONFIG_FILE"
     sed -i '/^socks-port:/d' "$CONFIG_FILE"
     sed -i '/^external-ui:/d' "$CONFIG_FILE"
+    sed -i '/^bind-address:/d' "$CONFIG_FILE"
+    sed -i '/^allow-lan:/d' "$CONFIG_FILE"
 
     # Append the following lines to the top of config file
 
