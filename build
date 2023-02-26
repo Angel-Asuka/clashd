@@ -222,7 +222,7 @@ fi
 
 if [ ! -z $CONFIG_URL ]; then
     echo "Downloading config file..."
-    wget "$CONFIG_URL\&flag=clash" -O "$DIR/config.yaml" 2>>./log
+    wget "$CONFIG_URL&flag=clash" -O "$DIR/config.yaml" 2>>./log
     if [ $? -ne 0 ]; then
         echo "Failed to download config file, please check the log."
         exit 1

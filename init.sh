@@ -95,7 +95,7 @@ if [ ! -f "$COMPLETE_MARK" ]; then
         # Download config file if CONFIG_URL is set
         if [ ! -z "$CONFIG_URL" ]; then
             echo "Downloading config file from $CONFIG_URL"
-            wget "$CONFIG_URL\&flag=clash" -O "$CONFIG_FILE"
+            wget "$CONFIG_URL&flag=clash" -O "$CONFIG_FILE"
             if [ $? -ne 0 ]; then
                 echo "Failed to download config file"
                 exit 1
