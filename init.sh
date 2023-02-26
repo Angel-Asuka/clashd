@@ -9,7 +9,7 @@ CLASH_PATH=/usr/bin/clash
 UI_PATH=/usr/share/clash-dashboard
 
 CheckLastestReleaseOfGithubReprositry() {
-    local ver=$(wget --max-redirect=0 --server-response $1/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([^\/]+).*/\1/p')
+    local ver=$(wget --max-redirect=0 --server-response $1/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([^\/ ]+)$/\1/p'  | head -n 1)
     if [ -z $ver ]; then
         echo "Failed to check the lastest release of $1"
         exit 1
@@ -24,8 +24,16 @@ if [ ! -f "$CLASH_PATH" ]; then
     echo "Check the last version of clash..."
     CLASH_VERSION=$(CheckLastestReleaseOfGithubReprositry https://github.com/Dreamacro/clash)
     echo "The lastest version of clash is ${CLASH_VERSION}"
+
+    # Check if our processor is compatible with the v3 microarchitecture.
+    if [ $(grep -c avx2 /proc/cpuinfo) -gt 0 ]; then
+        ARCHITECTURE=-v3
+    else
+        ARCHITECTURE=
+    fi
+
     echo "Downloading clash..."
-    wget https://github.com/Dreamacro/clash/releases/download/${CLASH_VERSION}/clash-linux-amd64-v3-${CLASH_VERSION}.gz -O /clash.gz 2>>/var/log/clash-init.log
+    wget https://github.com/Dreamacro/clash/releases/download/${CLASH_VERSION}/clash-linux-amd64${ARCHITECTURE}-${CLASH_VERSION}.gz -O /clash.gz 2>>/var/log/clash-init.log
     if [ $? -ne 0 ]; then
         cat "/var/log/clash-init.log"
         echo "Failed to download clash, please check the log."

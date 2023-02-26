@@ -110,7 +110,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 CheckLastestReleaseOfGithubReprositry() {
-    local ver=$(wget --max-redirect=0 --server-response $1/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([^\/]+).*/\1/p')
+    local ver=$(wget --max-redirect=0 --server-response $1/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([^\/ ]+)$/\1/p'  | head -n 1)
     if [ -z $ver ]; then
         echo "Failed to check the lastest release of $1"
         exit 1
@@ -146,8 +146,15 @@ if [ "$RUNTIME_CLASH" = false ]; then
             echo "Using the specified version ${CLASH_VERSION}"
         fi
 
+        # Check if our processor is compatible with the v3 microarchitecture.
+        if [ $(grep -c avx2 /proc/cpuinfo) -gt 0 ]; then
+            ARCHITECTURE=-v3
+        else
+            ARCHITECTURE=
+        fi
+        
         echo "Downloading clash..."
-        wget https://github.com/Dreamacro/clash/releases/download/${CLASH_VERSION}/clash-linux-amd64-v3-${CLASH_VERSION}.gz -O clash.gz 2>>./log
+        wget https://github.com/Dreamacro/clash/releases/download/${CLASH_VERSION}/clash-linux-amd64${ARCHITECTURE}-${CLASH_VERSION}.gz -O clash.gz 2>>./log
 
         if [ $? -ne 0 ]; then
             echo "Failed to download clash, please check the log."
@@ -163,7 +170,7 @@ fi
 if [ "$RUNTIME_GEOIP" = false ]; then
 
     echo "Retrieving GeoIP's version ..."
-    CURRENT_RELEASE=$(wget --max-redirect=0 --server-response https://github.com/Dreamacro/maxmind-geoip/releases/latest 2>&1 | grep Location | sed -nE 's/.*releases\/tag\/([0-9]+).*/\1/p')
+    CURRENT_RELEASE=$(CheckLastestReleaseOfGithubReprositry https://github.com/Dreamacro/maxmind-geoip)
     echo "The lastest version is ${CURRENT_RELEASE}"
     echo "Downloading GeoIP's database ..."
     wget https://github.com/Dreamacro/maxmind-geoip/releases/download/${CURRENT_RELEASE}/Country.mmdb 2>>./log
